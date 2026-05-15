@@ -1,0 +1,316 @@
+# 🚀 NASA Flask App — AWS Deployment
+
+A cloud deployment of the [NASA Demo Flask App](https://github.com/davidrichardharvey/nasa-flask-app), demonstrating a scalable, highly available architecture on AWS using EC2, an Application Load Balancer, and an Auto Scaling Group.
+
+> **Live URL:** [http://se-omar-nasa-flask-app-alb-928656398.eu-west-1.elb.amazonaws.com/](http://se-omar-nasa-flask-app-alb-928656398.eu-west-1.elb.amazonaws.com/)
+
+---
+
+## What the App Does
+
+The app integrates with several NASA public APIs and renders the results as web pages:
+
+| Route | Description |
+|---|---|
+| `/` | Home page — lists all available endpoints |
+| `/apod` | Astronomy Picture of the Day |
+| `/neo` | Near-Earth Objects (today's asteroid data) |
+| `/earth` | Satellite imagery of Earth |
+
+---
+
+## Architecture
+
+```
+                        Internet
+                           │
+                           ▼
+              ┌────────────────────────┐
+              │  Application Load      │
+              │  Balancer (ALB)        │
+              │  Port 80               │
+              └────────────┬───────────┘
+                           │ forwards to port 5000
+              ┌────────────┴───────────┐
+              │    Target Group        │
+              │    Port 5000           │
+              └──────┬─────────┬───────┘
+                     │         │
+           ┌─────────┴──┐  ┌───┴──────────┐
+           │  EC2 #1    │  │  EC2 #2      │  ← Auto Scaling Group
+           │ (AZ-a)     │  │ (AZ-b)       │    min: 1 / desired: 2 / max: 4
+           │            │  │              │
+           │  Gunicorn  │  │  Gunicorn    │
+           │  :5000     │  │  :5000       │
+           │            │  │              │
+           │  Flask App │  │  Flask App   │
+           └────────────┘  └──────────────┘
+```
+
+### AWS Resources Used
+
+| Resource | Name | Purpose |
+|---|---|---|
+| EC2 Instance | `nasa-flask-app` | Base instance used to build the AMI |
+| AMI | `nasa-flask-app-ami` | Golden image of the configured instance |
+| Launch Template | `nasa-flask-lt` | Reusable config for ASG-launched instances |
+| Target Group | `nasa-flask-tg` | Routes ALB traffic to instances on port 5000 |
+| Load Balancer | `nasa-flask-alb` | Internet-facing ALB, accepts traffic on port 80 |
+| Auto Scaling Group | `nasa-flask-asg` | Maintains desired capacity; scales on CPU |
+
+---
+
+## Deployment Steps
+
+### Prerequisites
+
+- AWS account with EC2, ALB, and ASG permissions
+- A NASA API key — free from [api.nasa.gov](https://api.nasa.gov/)
+- An EC2 key pair (`.pem` file) for SSH access
+- All resources deployed in the **same AWS region**
+
+---
+
+### Phase 1 — Single EC2 Instance
+
+#### 1. Launch the EC2 Instance
+
+In the AWS Console go to **EC2 → Launch Instances** and configure:
+
+- **AMI:** Ubuntu Server 24.04 LTS
+- **Instance type:** `t2.micro`
+- **Key pair:** your existing key pair
+- **Auto-assign public IP:** Enabled
+- **Security group** (`nasa-flask-sg`) inbound rules:
+
+  | Type | Port | Source |
+  |---|---|---|
+  | SSH | 22 | My IP |
+  | Custom TCP | 5000 | Anywhere |
+
+#### 2. Connect & Install Dependencies
+
+```bash
+chmod 400 your-key.pem
+ssh -i your-key.pem ubuntu@<EC2-PUBLIC-IP>
+```
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3 python3-pip python3-venv git
+```
+
+#### 3. Clone the App & Set the API Key
+
+```bash
+cd /home/ubuntu
+git clone https://github.com/davidrichardharvey/nasa-flask-app.git
+cd nasa-flask-app
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install gunicorn
+```
+
+Add the NASA API key permanently:
+
+```bash
+echo 'NASA_API_KEY="YOUR_API_KEY_HERE"' | sudo tee -a /etc/environment
+source /etc/environment
+```
+
+Confirm it's set:
+
+```bash
+echo $NASA_API_KEY
+```
+
+Test the app starts manually:
+
+```bash
+python3 app.py
+# Visit http://<EC2-PUBLIC-IP>:5000 to confirm — then Ctrl+C
+```
+
+#### 4. Run with Gunicorn & Systemd
+
+Create a Systemd service so Gunicorn starts automatically on boot and restarts on failure:
+
+```bash
+sudo nano /etc/systemd/system/nasa-flask.service
+```
+
+```ini
+[Unit]
+Description=Gunicorn instance for NASA Flask App
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/nasa-flask-app
+Environment="PATH=/home/ubuntu/nasa-flask-app/venv/bin"
+EnvironmentFile=/etc/environment
+ExecStart=/home/ubuntu/nasa-flask-app/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable nasa-flask
+sudo systemctl start nasa-flask
+sudo systemctl status nasa-flask
+# Should show: Active: active (running)
+```
+
+Visit `http://<EC2-PUBLIC-IP>:5000` — the app should be live.
+
+---
+
+### Phase 2 — Create an AMI
+
+A snapshot of the fully configured instance, used to launch identical copies via the ASG.
+
+1. Select the running instance in the EC2 Console
+2. **Actions → Image and templates → Create image**
+3. Name it `nasa-flask-app-ami`
+4. Click **Create image** and wait for status **Available**
+
+---
+
+### Phase 3 — Create a Launch Template
+
+Defines the configuration every new ASG instance will use.
+
+1. **EC2 → Launch Templates → Create launch template**
+2. Configure:
+   - **Name:** `nasa-flask-lt`
+   - **AMI:** `nasa-flask-app-ami` (My AMIs)
+   - **Instance type:** `t2.micro`
+   - **Key pair:** your existing key pair
+   - **Security group:** `nasa-flask-sg`
+   - **User data:** leave blank (Systemd service starts automatically from the AMI)
+3. Click **Create launch template**
+
+---
+
+### Phase 4 — Auto Scaling Group + Load Balancer
+
+#### 4.1 Create a Target Group
+
+**EC2 → Target Groups → Create target group**
+
+- **Target type:** Instances
+- **Name:** `nasa-flask-tg`
+- **Protocol/Port:** HTTP / **5000**
+- **Health check path:** `/`
+
+#### 4.2 Create the Application Load Balancer
+
+**EC2 → Load Balancers → Create load balancer → Application Load Balancer**
+
+- **Name:** `nasa-flask-alb`
+- **Scheme:** Internet-facing
+- **Listener:** HTTP port 80
+- **Subnets:** Select at least 2 subnets across different AZs
+- **Security group** (`nasa-flask-alb-sg`):
+
+  | Type | Port | Source |
+  |---|---|---|
+  | HTTP | 80 | Anywhere |
+
+- **Forward to:** `nasa-flask-tg`
+
+> Also update `nasa-flask-sg` to allow port 5000 inbound **from `nasa-flask-alb-sg`** only — this ensures only the ALB can reach Gunicorn directly.
+
+#### 4.3 Create the Auto Scaling Group
+
+**EC2 → Auto Scaling Groups → Create Auto Scaling group**
+
+- **Name:** `nasa-flask-asg`
+- **Launch template:** `nasa-flask-lt`
+- **Subnets:** same as the ALB
+- **Load balancer:** attach to `nasa-flask-tg`
+- **Health check type:** ELB | **Grace period:** 120 seconds
+- **Capacity:** Desired `2` / Min `1` / Max `4`
+- **Scaling policy:** Target tracking — CPU at 50%
+
+The ASG will launch instances automatically. Once the target group shows them as **Healthy**, the deployment is complete.
+
+---
+
+## Verification
+
+Access the app through the ALB DNS:
+
+```
+http://se-omar-nasa-flask-app-alb-928656398.eu-west-1.elb.amazonaws.com/
+```
+
+Test all routes:
+
+| Route | Expected Result |
+|---|---|
+| `/` | Home page with endpoint list |
+| `/apod` | Today's NASA Astronomy Picture |
+| `/neo` | Today's near-Earth asteroid data |
+| `/earth` | Satellite imagery of Earth |
+
+---
+
+## Cleanup
+
+Delete resources **in this order** to avoid dependency errors:
+
+1. **Auto Scaling Group** — terminates all managed instances
+2. **Application Load Balancer**
+3. **Target Group**
+4. **Launch Template**
+5. **AMI** — then delete the associated **Snapshot** under EC2 → Snapshots
+6. **Original EC2 instance**
+7. **Security groups** (`nasa-flask-sg`, `nasa-flask-alb-sg`)
+
+---
+
+## Troubleshooting
+
+**App not responding on port 5000**
+```bash
+sudo systemctl status nasa-flask
+sudo journalctl -u nasa-flask -n 50
+```
+
+**NASA API errors**
+```bash
+echo $NASA_API_KEY
+sudo systemctl show nasa-flask | grep Environment
+```
+
+**ALB health checks failing**
+- Confirm `nasa-flask-sg` allows port 5000 inbound from `nasa-flask-alb-sg`
+- Check the health check grace period (120s) has elapsed
+- Verify `/` returns HTTP 200: `curl http://localhost:5000/`
+
+**Instances not joining the Target Group**
+- Confirm ASG subnets match ALB subnets
+- Check instance launch logs in EC2 → Instances → Instance → Actions → Monitor and troubleshoot
+
+---
+
+## Tech Stack
+
+- **Python 3 / Flask** — web framework
+- **Gunicorn** — WSGI server
+- **Systemd** — process management
+- **AWS EC2** — compute (Ubuntu 24.04 LTS, t2.micro)
+- **AWS AMI** — golden image
+- **AWS Launch Template** — instance configuration
+- **AWS ALB** — Application Load Balancer
+- **AWS ASG** — Auto Scaling Group
+- **NASA Open APIs** — [api.nasa.gov](https://api.nasa.gov/)
