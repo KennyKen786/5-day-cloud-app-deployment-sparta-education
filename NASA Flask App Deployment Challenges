@@ -1,0 +1,359 @@
+# NASA Flask App Deployment Challenges & Lessons Learned
+
+## Project Overview
+
+The final project involved deploying the NASA Flask Application to AWS using a scalable cloud architecture.
+
+Repository deployed:
+
+[NASA Flask App Repository](https://github.com/davidrichardharvey/nasa-flask-app?utm_source=chatgpt.com)
+
+The deployment included:
+
+* Flask Application
+* Gunicorn WSGI Server
+* EC2 Deployment
+* AMI Creation
+* Launch Templates
+* Application Load Balancer
+* Auto Scaling Groups
+* AWS Networking & Security
+* GitHub Documentation & Screenshots
+
+---
+
+# 14. Python Environment & Dependency Issues
+
+## Problem
+
+The Flask application would not start initially because required Python packages were missing.
+
+## Cause
+
+The Python virtual environment and dependencies had not yet been configured.
+
+## Solution
+
+Created a Python virtual environment:
+
+```bash
+python3 -m venv venv
+```
+
+Activated environment:
+
+```bash
+source venv/bin/activate
+```
+
+Installed dependencies:
+
+```bash
+pip install flask requests gunicorn
+```
+
+## What I Learned
+
+* Python virtual environment management
+* Dependency isolation
+* Importance of requirements management
+
+---
+
+# 15. NASA API Key Configuration
+
+## Problem
+
+NASA API endpoints would fail without authentication.
+
+## Cause
+
+The required environment variable was not configured.
+
+## Solution
+
+Configured the API key using environment variables:
+
+```bash
+export NASA_API_KEY=YOUR_API_KEY
+```
+
+Persisted the variable:
+
+```bash
+echo 'export NASA_API_KEY=YOUR_API_KEY' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## What I Learned
+
+* API authentication workflows
+* Secure configuration practices
+* Environment variable persistence
+
+---
+
+# 16. Gunicorn Deployment Issues
+
+## Problem
+
+The Flask application worked with:
+
+```bash
+python3 app.py
+```
+
+but failed under production deployment.
+
+## Cause
+
+Flask’s built-in development server is not suitable for production environments.
+
+## Solution
+
+Installed and configured Gunicorn:
+
+```bash
+pip install gunicorn
+```
+
+Started Gunicorn manually:
+
+```bash
+gunicorn --bind 0.0.0.0:5000 app:app
+```
+
+Created a systemd service for persistence and automatic startup.
+
+## What I Learned
+
+* Difference between development and production servers
+* WSGI server architecture
+* Importance of Gunicorn in production deployments
+
+---
+
+# 17. Systemd Service Configuration
+
+## Problem
+
+The Gunicorn process stopped after reboot or terminal logout.
+
+## Cause
+
+The application was not configured as a system service.
+
+## Solution
+
+Created a systemd service file:
+
+```bash
+sudo nano /etc/systemd/system/nasa.service
+```
+
+Enabled the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start nasa
+sudo systemctl enable nasa
+```
+
+Verified service status:
+
+```bash
+sudo systemctl status nasa
+```
+
+## What I Learned
+
+* Linux service management
+* Boot-time application startup
+* Process persistence in production systems
+
+---
+
+# 18. Gunicorn Port Binding Considerations
+
+## Problem
+
+Running Gunicorn directly on port 80 can require elevated privileges and introduces security concerns.
+
+## Solution
+
+Used a cleaner architecture:
+
+* Gunicorn bound to port 5000
+* Application Load Balancer forwarded traffic
+* Security Groups restricted direct access
+
+Gunicorn configuration:
+
+```bash
+gunicorn --bind 0.0.0.0:5000 app:app
+```
+
+## What I Learned
+
+* Production networking best practices
+* Port management & security
+* Load balancer traffic forwarding
+
+---
+
+# 19. Auto Scaling & Health Check Challenges
+
+## Problem
+
+Instances launched by the Auto Scaling Group initially failed health checks.
+
+## Cause
+
+Common causes included:
+
+* Incorrect Target Group port
+* Application not fully started
+* Security Group restrictions
+* Incorrect health check path
+
+## Solution
+
+Verified:
+
+* Health check path:
+
+```bash
+/
+```
+
+* Gunicorn running correctly
+* Port 5000 accessible from Load Balancer
+* Security Group rules configured properly
+
+## What I Learned
+
+* AWS health check behaviour
+* Importance of application readiness
+* Load balancer troubleshooting
+
+---
+
+# 20. Launch Template & AMI Automation
+
+## Problem
+
+Needed consistent infrastructure deployment across multiple EC2 instances.
+
+## Solution
+
+Created:
+
+* Custom AMI containing application configuration
+* Launch Template using AMI
+* Auto Scaling Group linked to Launch Template
+
+This allowed automatic provisioning of identical application servers.
+
+## What I Learned
+
+* Immutable infrastructure concepts
+* Infrastructure standardisation
+* Automated scaling architecture
+
+---
+
+# 21. Screenshot & Documentation Workflow
+
+## Problem
+
+Needed to organise screenshots professionally within the GitHub repository.
+
+## Solution
+
+Created a dedicated screenshots directory:
+
+```bash
+screenshots/
+```
+
+Used Git CLI workflow:
+
+```bash
+git add .
+git commit -m "Added deployment screenshots"
+git push origin main
+```
+
+Referenced screenshots in README using relative paths:
+
+```md
+![EC2 Instance](screenshots/ec2-instance.png)
+```
+
+## What I Learned
+
+* Professional GitHub repository structure
+* Markdown image embedding
+* Documentation best practices
+
+---
+
+# 22. AWS Resource Cleanup
+
+## Problem
+
+Leaving AWS resources running can generate unnecessary cloud costs.
+
+## Solution
+
+Deleted all created resources after project completion:
+
+* EC2 Instances
+* Auto Scaling Groups
+* Load Balancers
+* Target Groups
+* Launch Templates
+* AMIs
+* Security Groups
+
+## What I Learned
+
+* Cloud cost management
+* Responsible infrastructure lifecycle management
+* Importance of resource cleanup
+
+---
+
+# Final NASA Flask App Architecture
+
+```text
+Internet
+   ↓
+Application Load Balancer
+   ↓
+Auto Scaling Group
+   ↓
+EC2 Instances
+   ↓
+Gunicorn
+   ↓
+Flask Application
+```
+
+---
+
+# Final Reflection on the Project
+
+This final project brought together everything learned throughout the training week:
+
+* Linux Administration
+* AWS Infrastructure
+* Python Deployment
+* Automation
+* Monitoring
+* Scaling
+* Networking
+* Security
+* Documentation
+
+The project helped reinforce real-world DevOps workflows and provided hands-on experience building scalable and production-style cloud infrastructure using AWS.
