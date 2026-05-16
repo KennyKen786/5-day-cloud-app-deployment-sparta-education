@@ -1,0 +1,407 @@
+# Troubleshooting & Lessons Learned
+
+## AWS & DevOps Training Journey – Problem Solving Documentation
+
+Throughout this AWS & DevOps training journey, I encountered several real-world infrastructure, deployment, networking, and automation issues.
+
+This document outlines the problems faced, root causes identified, solutions implemented, and key lessons learned during the deployment and scaling of cloud applications on AWS.
+
+---
+
+# 1. Node.js Seed Script Path Error
+
+## Problem
+
+While attempting to seed the MongoDB database, the following error occurred:
+
+```bash
+Error: Cannot find module '/home/ubuntu/se-sparta-test-app/se-sparta-test-app/app/seeds/seed.js'
+```
+
+## Cause
+
+The command incorrectly duplicated the project directory path while already inside the repository directory.
+
+Incorrect command:
+
+```bash
+nodejs se-sparta-test-app/app/seeds/seed.js
+```
+
+## Solution
+
+Used the correct relative path:
+
+```bash
+nodejs app/seeds/seed.js
+```
+
+Or absolute path:
+
+```bash
+nodejs /home/ubuntu/se-sparta-test-app/app/seeds/seed.js
+```
+
+## What I Learned
+
+* Importance of understanding Linux file paths
+* Relative vs absolute paths
+* Debugging Node.js module errors
+
+---
+
+# 2. MongoDB Remote Connection Failure
+
+## Problem
+
+The application server could not connect to MongoDB remotely.
+
+## Cause
+
+MongoDB was configured to only accept local connections:
+
+```bash
+bindIp: 127.0.0.1
+```
+
+## Solution
+
+Updated MongoDB configuration file:
+
+```bash
+sudo nano /etc/mongod.conf
+```
+
+Changed:
+
+```bash
+bindIp: 0.0.0.0
+```
+
+Restarted MongoDB:
+
+```bash
+sudo systemctl restart mongod
+```
+
+## What I Learned
+
+* Importance of network binding
+* MongoDB remote access configuration
+* Security considerations when exposing services
+
+---
+
+# 3. Security Group Misconfiguration
+
+## Problem
+
+The application and database instances were unable to communicate.
+
+## Cause
+
+Required inbound ports were not correctly opened in AWS Security Groups.
+
+## Solution
+
+Configured Security Groups correctly:
+
+### App Instance
+
+* Port 22 → SSH
+* Port 80 → HTTP
+* Port 3000 → Application
+
+### Database Instance
+
+* Port 27017 → MongoDB
+* Restricted access from App Security Group only
+
+## What I Learned
+
+* AWS networking fundamentals
+* Importance of least-privilege access
+* How Security Groups act as virtual firewalls
+
+---
+
+# 4. Nginx Reverse Proxy Issues
+
+## Problem
+
+Users had to access the application using:
+
+```bash
+APP_IP:3000
+```
+
+instead of standard HTTP traffic on port 80.
+
+## Cause
+
+Nginx reverse proxy was not configured.
+
+## Solution
+
+Modified Nginx configuration:
+
+```bash
+sudo sed -i '51c\proxy_pass http://127.0.0.1:3000;' /etc/nginx/sites-available/default
+```
+
+Restarted Nginx:
+
+```bash
+sudo systemctl restart nginx
+```
+
+## What I Learned
+
+* Reverse proxy architecture
+* Role of Nginx in production deployments
+* Traffic forwarding concepts
+
+---
+
+# 5. PM2 Process Management Issues
+
+## Problem
+
+The Node.js application stopped running after terminal sessions closed.
+
+## Cause
+
+The app was started in the foreground.
+
+## Solution
+
+Installed PM2 and started the app as a background process:
+
+```bash
+sudo npm install pm2 -g
+pm2 start app.js
+```
+
+## What I Learned
+
+* Importance of process managers
+* Background process handling
+* Application persistence
+
+---
+
+# 6. MongoDB Ubuntu 24.04 Compatibility Issues
+
+## Problem
+
+MongoDB installation issues occurred on Ubuntu 24.04.
+
+## Cause
+
+MongoDB 7.x repositories were originally designed for Ubuntu 22.04 (Jammy).
+
+## Solution
+
+Used the Jammy repository manually for compatibility:
+
+```bash
+https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse
+```
+
+## What I Learned
+
+* Linux package repository compatibility
+* Dependency management
+* OS version considerations
+
+---
+
+# 7. Environment Variable Configuration
+
+## Problem
+
+The application could not connect to the database after instance recreation.
+
+## Cause
+
+The database IP address changed after rebuilding infrastructure from AMIs.
+
+## Solution
+
+Updated environment variable:
+
+```bash
+export DB_HOST=mongodb://<DB_PRIVATE_IP>:27017/posts
+```
+
+Restarted the application using PM2.
+
+## What I Learned
+
+* Dynamic infrastructure considerations
+* Importance of environment variables
+* Infrastructure decoupling
+
+---
+
+# 8. AMI Recovery & Instance Recreation
+
+## Problem
+
+Original EC2 instances were deleted after creating AMIs.
+
+## Solution
+
+Successfully recreated:
+
+* Database Instance
+* Application Instance
+
+using Amazon Machine Images (AMIs).
+
+## What I Learned
+
+* Infrastructure recovery
+* Immutable infrastructure concepts
+* Backup & disaster recovery principles
+
+---
+
+# 9. CloudWatch Monitoring & Alerts
+
+## Problem
+
+Needed visibility into infrastructure health and performance.
+
+## Solution
+
+Configured:
+
+* CloudWatch Dashboards
+* CPU Utilisation Monitoring
+* Network Metrics
+* CloudWatch Alarms
+* SNS Email Notifications
+
+## What I Learned
+
+* Infrastructure observability
+* Monitoring best practices
+* Proactive alerting systems
+
+---
+
+# 10. Auto Scaling & Load Balancing
+
+## Problem
+
+Needed scalable and highly available architecture.
+
+## Solution
+
+Implemented:
+
+* Launch Templates
+* Auto Scaling Groups (ASG)
+* Application Load Balancer (ALB)
+* Health Checks
+* Scaling Policies
+
+## What I Learned
+
+* Elastic cloud infrastructure
+* High availability architecture
+* Traffic distribution
+* Self-healing systems
+
+---
+
+# 11. User Data Automation
+
+## Problem
+
+Manual deployment steps were repetitive and time-consuming.
+
+## Solution
+
+Used EC2 User Data scripts to automate application startup:
+
+```bash
+#!/bin/bash
+
+sleep 15
+
+cd /home/ubuntu/se-sparta-test-app/app
+
+export DB_HOST=mongodb://<DB_IP>:27017/posts
+
+pm2 start app.js
+```
+
+## What I Learned
+
+* Infrastructure automation
+* Boot-time provisioning
+* Reducing manual operational tasks
+
+---
+
+# 12. Flask Application Deployment (NASA App)
+
+## Problem
+
+Needed to deploy a Python Flask application using production-style architecture.
+
+## Solution
+
+Successfully configured:
+
+* Python environment
+* Flask application
+* Gunicorn WSGI server
+* Nginx reverse proxy
+* AMI creation
+* Launch Templates
+* Auto Scaling Groups
+* Application Load Balancer
+
+## What I Learned
+
+* Python web deployment workflows
+* WSGI application serving
+* Production deployment patterns
+* Scalability & high availability
+
+---
+
+# Overall Key Lessons Learned
+
+Throughout this training I gained practical hands-on experience with:
+
+* AWS Cloud Infrastructure
+* Linux Administration
+* Networking & Security
+* Application Deployment
+* Infrastructure Automation
+* Monitoring & Alerting
+* Load Balancing
+* Auto Scaling
+* Cloud Architecture
+* Troubleshooting Production Systems
+* Real-world DevOps workflows
+
+---
+
+# Final Reflection
+
+One of the biggest takeaways from this training journey was learning that DevOps and Cloud Engineering are not only about deployment, but also:
+
+* Troubleshooting
+* Automation
+* Monitoring
+* Scalability
+* Reliability
+* Security
+* Documentation
+
+Every issue encountered became an opportunity to improve problem-solving skills and gain deeper understanding of real-world cloud infrastructure.
